@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Craw Pro · 智能爬虫</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🕷️</text></svg>">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">🕷️ Craw Pro <span class="muted">智能爬虫</span></div>
+    <div id="server-info" class="muted small"></div>
+  </header>
+
+  <main class="layout">
+    <aside class="sidebar">
+      <section class="card">
+        <h2>新建抓取任务</h2>
+        <form id="job-form">
+          <label>网址（每行一个）
+            <textarea id="urls" rows="3" placeholder="https://news.ycombinator.com" required></textarea>
+          </label>
+          <label>想抓取什么？（自然语言描述）
+            <textarea id="description" rows="5" placeholder="例如：抓取首页所有新闻的标题、链接、分数和评论数；如果有“下一页”，继续抓取。"></textarea>
+          </label>
+          <div class="row">
+            <label>最多页面数 <input id="max_pages" type="number" min="1" value="5"></label>
+            <label>链接深度 <input id="max_depth" type="number" min="0" value="1"></label>
+          </div>
+          <details>
+            <summary>高级选项</summary>
+            <label class="check"><input id="same_domain" type="checkbox" checked> 只跟随同域名链接</label>
+            <label class="check"><input id="respect_robots" type="checkbox" checked> 遵守 robots.txt</label>
+            <label class="check"><input id="render_js" type="checkbox"> 使用浏览器渲染 JavaScript <span id="browser-note" class="muted small"></span></label>
+          </details>
+          <button type="submit" id="submit-btn">开始抓取</button>
+          <div id="form-error" class="error"></div>
+        </form>
+      </section>
+
+      <section class="card">
+        <div class="card-head"><h2>历史任务</h2><button class="link" id="refresh-jobs">刷新</button></div>
+        <ul id="job-list" class="job-list"></ul>
+      </section>
+    </aside>
+
+    <section class="content">
+      <div id="empty" class="card empty">
+        <p>在左侧输入网址和需求，开始你的第一个抓取任务。</p>
+        <p class="muted small">系统会先用 Claude 理解你的描述、生成字段，再逐页抓取并提取结构化数据。</p>
+      </div>
+
+      <div id="job-view" hidden>
+        <section class="card">
+          <div class="card-head">
+            <div>
+              <h2 id="job-title">任务</h2>
+              <div id="job-urls" class="muted small"></div>
+            </div>
+            <div class="actions">
+              <span id="job-status" class="badge"></span>
+              <button id="cancel-btn" class="secondary" hidden>取消</button>
+              <button id="delete-btn" class="secondary">删除</button>
+            </div>
+          </div>
+          <div class="progress"><div id="progress-bar"></div></div>
+          <div id="job-stats" class="stats"></div>
+          <div id="job-plan" class="plan"></div>
+        </section>
+
+        <section class="card">
+          <div class="tabs">
+            <button class="tab active" data-tab="results">结果 <span id="count-results"></span></button>
+            <button class="tab" data-tab="log">进度日志</button>
+            <button class="tab" data-tab="pages">页面 <span id="count-pages"></span></button>
+            <div class="spacer"></div>
+            <button class="secondary" id="export-csv">导出 CSV</button>
+            <button class="secondary" id="export-json">导出 JSON</button>
+          </div>
+          <div class="tab-body" data-body="results">
+            <input id="filter" type="search" placeholder="筛选结果…">
+            <div class="table-wrap"><table id="results-table"></table></div>
+          </div>
+          <div class="tab-body" data-body="log" hidden><ol id="log" class="log"></ol></div>
+          <div class="tab-body" data-body="pages" hidden><div class="table-wrap"><table id="pages-table"></table></div></div>
+        </section>
+      </div>
+    </section>
+  </main>
+
+  <dialog id="pw-dialog">
+    <form method="dialog" id="pw-form">
+      <h3>请输入访问密码</h3>
+      <input id="pw-input" type="password" autocomplete="current-password" required>
+      <div id="pw-error" class="error"></div>
+      <button type="submit">确定</button>
+    </form>
+  </dialog>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
