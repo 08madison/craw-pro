@@ -1,11 +1,12 @@
-"""Claude-powered understanding of the user's natural-language crawl request."""
+"""LLM-powered understanding of the user's natural-language crawl request."""
 from __future__ import annotations
 
+import json
 import re
 from typing import Any
 
 import anthropic
-from pydantic import BaseModel, Field, create_model
+from pydantic import BaseModel, Field, ValidationError, create_model
 
 from . import config
 from .fetcher import Page
@@ -94,22 +95,48 @@ def fallback_plan(description: str) -> CrawlPlan:
 
 
 class Extractor:
-    def __init__(self) -> None:
-        self.client = anthropic.AsyncAnthropic(api_key=config.ANTHROPIC_API_KEY, max_retries=3)
+    """Runs structured-output calls against the configured LLM provider."""
 
-    async def _parse(self, *, system: Any, content: str, output_format: type[BaseModel],
-                     max_tokens: int) -> tuple[BaseModel, dict]:
+    def __init__(self) -> None:
+        self.provider = config.LLM_PROVIDER
+        if not config.LLM_MODEL:
+            raise LLMError("请设置环境变量 LLM_MODEL（模型名称，例如 deepseek-chat）")
+        if self.provider == "anthropic":
+            self.client = anthropic.AsyncAnthropic(api_key=config.ANTHROPIC_API_KEY, max_retries=3)
+        elif self.provider == "openai":
+            import openai
+
+            self.openai = openai
+            self.client = openai.AsyncOpenAI(api_key=config.LLM_API_KEY or "none",
+                                             base_url=config.LLM_BASE_URL, max_retries=3)
+            self.json_mode = config.LLM_JSON_MODE
+        else:
+            raise LLMError(f"不支持的 LLM_PROVIDER: {self.provider}")
+
+    async def _parse(self, *, system: str, content: str, output_format: type[BaseModel],
+                     cache_system: bool = False) -> tuple[BaseModel, dict]:
+        if self.provider == "anthropic":
+            return await self._parse_anthropic(system, content, output_format, cache_system)
+        return await self._parse_openai(system, content, output_format)
+
+    # ---- Claude: native structured outputs ----
+    async def _parse_anthropic(self, system: str, content: str, output_format: type[BaseModel],
+                               cache_system: bool) -> tuple[BaseModel, dict]:
         kwargs: dict[str, Any] = {}
-        if config.CLAUDE_EFFORT:
-            kwargs["output_config"] = {"effort": config.CLAUDE_EFFORT}
-        if config.CLAUDE_FALLBACKS == "default":
+        if config.LLM_EFFORT:
+            kwargs["output_config"] = {"effort": config.LLM_EFFORT}
+        if config.LLM_FALLBACKS == "default":
             kwargs["betas"] = ["server-side-fallback-2026-07-01"]
             kwargs["fallbacks"] = "default"
+        sys_block: Any = system
+        if cache_system:
+            # Same system prompt for every page of a job -> cache it.
+            sys_block = [{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}]
         try:
             resp = await self.client.beta.messages.parse(
-                model=config.CLAUDE_MODEL,
-                max_tokens=max_tokens,
-                system=system,
+                model=config.LLM_MODEL,
+                max_tokens=max(config.LLM_MAX_TOKENS, 16000),
+                system=sys_block,
                 messages=[{"role": "user", "content": content}],
                 output_format=output_format,
                 **kwargs,
@@ -130,12 +157,68 @@ class Extractor:
         usage = {"input_tokens": resp.usage.input_tokens, "output_tokens": resp.usage.output_tokens}
         return resp.parsed_output, usage
 
+    # ---- OpenAI-compatible: JSON mode + schema in prompt + validation/retry ----
+    async def _parse_openai(self, system: str, content: str,
+                            output_format: type[BaseModel]) -> tuple[BaseModel, dict]:
+        schema = json.dumps(output_format.model_json_schema(), ensure_ascii=False)
+        messages: list[dict] = [
+            {"role": "system", "content": system + "\n\nRespond with a single JSON object only (no markdown, "
+             "no explanation) that validates against this JSON Schema:\n" + schema},
+            {"role": "user", "content": content},
+        ]
+        usage = {"input_tokens": 0, "output_tokens": 0}
+        last_err = ""
+        for _ in range(2):
+            text, finish = await self._chat(messages, usage)
+            try:
+                return output_format.model_validate_json(_extract_json(text)), usage
+            except (ValueError, ValidationError) as e:
+                if finish == "length":
+                    raise LLMError("模型输出不完整（内容过多），部分结果可能丢失") from e
+                last_err = str(e)[:500]
+                messages += [
+                    {"role": "assistant", "content": text},
+                    {"role": "user", "content": f"That JSON was invalid: {last_err}\nReturn the corrected JSON object only."},
+                ]
+        raise LLMError(f"模型返回的 JSON 格式不正确: {last_err[:200]}")
+
+    async def _chat(self, messages: list[dict], usage: dict) -> tuple[str, str]:
+        o = self.openai
+        kwargs: dict[str, Any] = {}
+        if self.json_mode:
+            kwargs["response_format"] = {"type": "json_object"}
+        try:
+            resp = await self.client.chat.completions.create(
+                model=config.LLM_MODEL, messages=messages, max_tokens=config.LLM_MAX_TOKENS, **kwargs,
+            )
+        except o.BadRequestError as e:
+            if self.json_mode and "response_format" in str(e):
+                self.json_mode = False  # provider doesn't support JSON mode; rely on the prompt
+                return await self._chat(messages, usage)
+            raise LLMError(f"大模型 API 请求错误: {e.message}") from e
+        except o.AuthenticationError as e:
+            raise LLMError("大模型 API Key 无效") from e
+        except o.RateLimitError as e:
+            raise LLMError("大模型 API 速率受限或余额不足，请稍后重试") from e
+        except o.APIStatusError as e:
+            raise LLMError(f"大模型 API 错误 {e.status_code}: {e.message}") from e
+        except o.APIConnectionError as e:
+            raise LLMError(f"无法连接大模型 API ({config.LLM_BASE_URL}): {e}") from e
+        if resp.usage:
+            usage["input_tokens"] += resp.usage.prompt_tokens or 0
+            usage["output_tokens"] += resp.usage.completion_tokens or 0
+        if not resp.choices:
+            raise LLMError("大模型没有返回内容")
+        choice = resp.choices[0]
+        if choice.finish_reason == "content_filter":
+            raise LLMError("内容被模型的安全策略拦截")
+        return choice.message.content or "", choice.finish_reason or ""
+
     async def plan(self, description: str, urls: list[str]) -> tuple[CrawlPlan, dict]:
         content = (
             f"Start URL(s):\n" + "\n".join(urls) + f"\n\nWhat the user wants to collect:\n{description}"
         )
-        plan, usage = await self._parse(system=PLAN_SYSTEM, content=content,
-                                        output_format=CrawlPlan, max_tokens=8000)
+        plan, usage = await self._parse(system=PLAN_SYSTEM, content=content, output_format=CrawlPlan)
         return normalize_plan(plan), usage  # type: ignore[arg-type]
 
     def extraction_model(self, plan: CrawlPlan) -> type[BaseModel]:
@@ -150,14 +233,12 @@ class Extractor:
             note=(str, Field(description="Short remark about this page (in the user's language), or empty")),
         )
 
-    def system_for(self, plan: CrawlPlan) -> list[dict]:
+    def system_for(self, plan: CrawlPlan) -> str:
         fields = "\n".join(f"- {f.key} ({f.label}): {f.description}" for f in plan.fields)
-        text = EXTRACT_SYSTEM.format(
+        return EXTRACT_SYSTEM.format(
             summary=plan.summary, item_description=plan.item_description,
             fields=fields, link_guidance=plan.link_guidance or "(none)",
         )
-        # Same system prompt for every page of a job -> cache it.
-        return [{"type": "text", "text": text, "cache_control": {"type": "ephemeral"}}]
 
     async def extract(self, plan: CrawlPlan, model: type[BaseModel], page: Page,
                       want_links: bool) -> tuple[list[dict], list[int], str, dict]:
@@ -169,9 +250,22 @@ class Extractor:
         if not want_links:
             content += "\n\nNo further pages will be crawled; return an empty follow_links list."
         result, usage = await self._parse(system=self.system_for(plan), content=content,
-                                          output_format=model, max_tokens=16000)
+                                          output_format=model, cache_system=True)
         records = [r.model_dump() for r in result.records]  # type: ignore[attr-defined]
         return records, list(result.follow_links), result.note, usage  # type: ignore[attr-defined]
+
+
+def _extract_json(text: str) -> str:
+    """Strip markdown fences / surrounding prose some models add around JSON."""
+    text = text.strip()
+    fence = re.search(r"```(?:json)?\s*(.*?)```", text, re.S)
+    if fence:
+        text = fence.group(1).strip()
+    if not text.startswith("{"):
+        start, end = text.find("{"), text.rfind("}")
+        if start != -1 and end > start:
+            text = text[start : end + 1]
+    return text
 
 
 def basic_extract(page: Page) -> list[dict]:

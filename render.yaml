@@ -9,11 +9,14 @@ services:
     envVars:
       - key: PYTHON_VERSION
         value: 3.11.9
-      - key: ANTHROPIC_API_KEY
+      # Any OpenAI-compatible LLM (DeepSeek / Qwen / Kimi / GLM / OpenAI / OpenRouter ...)
+      - key: LLM_API_KEY
+        sync: false
+      - key: LLM_BASE_URL
+        sync: false
+      - key: LLM_MODEL
         sync: false
       - key: APP_PASSWORD
         sync: false
-      - key: LLM_MODEL
-        value: claude-opus-5
       - key: MAX_PAGES_LIMIT
         value: "50"

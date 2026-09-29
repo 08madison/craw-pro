@@ -71,7 +71,7 @@
   // ---------- init ----------
   async function init() {
     serverConfig = await fetch("/api/config").then((r) => r.json());
-    $("#server-info").textContent = serverConfig.llm_enabled ? `AI 提取：${serverConfig.model}` : "基础模式（未配置 Claude API Key）";
+    $("#server-info").textContent = serverConfig.llm_enabled ? `AI 提取：${serverConfig.model}` : "基础模式（未配置大模型 API Key）";
     $("#max_pages").max = serverConfig.max_pages_limit;
     $("#max_depth").max = serverConfig.max_depth_limit;
     if (!serverConfig.browser_available) {

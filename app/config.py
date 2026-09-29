@@ -9,12 +9,26 @@ def _int(name: str, default: int) -> int:
         return default
 
 
+# --- LLM provider ---
+# "openai": any OpenAI-compatible API (DeepSeek, Qwen/DashScope, Moonshot/Kimi, Zhipu GLM,
+#           OpenAI, OpenRouter, SiliconFlow, Ollama ...) -> LLM_API_KEY + LLM_BASE_URL + LLM_MODEL
+# "anthropic": Claude -> ANTHROPIC_API_KEY
+# empty: auto-detect from which key is set; no key at all = basic mode (no AI)
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
-CLAUDE_MODEL = os.environ.get("LLM_MODEL", "claude-opus-5")
-# low | medium | high | xhigh | max; empty = model default
-CLAUDE_EFFORT = os.environ.get("LLM_EFFORT", "")
-# "default" enables server-side refusal fallbacks; "off" disables them
-CLAUDE_FALLBACKS = os.environ.get("LLM_FALLBACKS", "default")
+LLM_API_KEY = os.environ.get("LLM_API_KEY", "")
+LLM_BASE_URL = os.environ.get("LLM_BASE_URL", "https://api.openai.com/v1")
+LLM_PROVIDER = os.environ.get("LLM_PROVIDER", "").strip().lower() or (
+    "openai" if LLM_API_KEY else "anthropic" if ANTHROPIC_API_KEY else ""
+)
+LLM_MODEL = os.environ.get("LLM_MODEL", "") or ("claude-opus-5" if LLM_PROVIDER == "anthropic" else "")
+# Claude only: low | medium | high | xhigh | max; empty = model default
+LLM_EFFORT = os.environ.get("LLM_EFFORT", "")
+# Claude only: "default" enables server-side refusal fallbacks; "off" disables them
+LLM_FALLBACKS = os.environ.get("LLM_FALLBACKS", "default")
+# Max output tokens per call (DeepSeek and some others cap at 8192)
+LLM_MAX_TOKENS = _int("LLM_MAX_TOKENS", 8192)
+# OpenAI-compatible only: send response_format=json_object (disable for providers that reject it)
+LLM_JSON_MODE = os.environ.get("LLM_JSON_MODE", "1") != "0"
 
 # Optional password protecting the web UI / API (strongly recommended on a public host)
 APP_PASSWORD = os.environ.get("APP_PASSWORD", "")

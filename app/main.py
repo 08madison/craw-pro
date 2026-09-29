@@ -54,8 +54,9 @@ async def healthz():
 async def get_config():
     return {
         "password_required": bool(config.APP_PASSWORD),
-        "llm_enabled": bool(config.ANTHROPIC_API_KEY),
-        "model": config.CLAUDE_MODEL,
+        "llm_enabled": bool(config.LLM_PROVIDER),
+        "provider": config.LLM_PROVIDER,
+        "model": config.LLM_MODEL,
         "browser_available": config.browser_available(),
         "max_pages_limit": config.MAX_PAGES_LIMIT,
         "max_depth_limit": config.MAX_DEPTH_LIMIT,

@@ -147,7 +147,7 @@ class Crawler:
         self.job = job
         self.store = store
         self.req = job.request
-        self.use_llm = bool(config.ANTHROPIC_API_KEY)
+        self.use_llm = bool(config.LLM_PROVIDER)
         self.extractor = Extractor() if self.use_llm else None
         self.robots = RobotsCache()
         self.seen: set[str] = set()
@@ -177,14 +177,14 @@ class Crawler:
 
         # 1. Understand the request
         if self.extractor:
-            emit(job, "info", f"正在用 Claude ({config.CLAUDE_MODEL}) 理解抓取需求…")
+            emit(job, "info", f"正在用 AI 模型 ({config.LLM_MODEL}) 理解抓取需求…")
             try:
                 plan, usage = await self.extractor.plan(self.req.description, self.req.urls)
             except LLMError as e:
                 raise RuntimeError(f"需求解析失败: {e}") from e
             self._add_usage(usage)
         else:
-            emit(job, "warn", "未配置 ANTHROPIC_API_KEY，使用基础模式（仅抓取标题和正文）")
+            emit(job, "warn", "未配置大模型 API Key，使用基础模式（仅抓取标题和正文）")
             plan = fallback_plan(self.req.description)
         job.plan = plan.model_dump()
         emit(job, "plan", "抓取计划: " + plan.summary + "；字段: " + "、".join(f.label for f in plan.fields))
@@ -247,7 +247,7 @@ class Crawler:
 
         want_links = depth < self.req.max_depth and len(self.seen) < self.req.max_pages
         if self.extractor:
-            emit(job, "extract", f"[{n}] Claude 正在分析「{page.title or url}」", url=url)
+            emit(job, "extract", f"[{n}] AI 正在分析「{page.title or url}」", url=url)
             try:
                 records, follow, note, usage = await self.extractor.extract(plan, model, page, want_links)
                 self._add_usage(usage)
