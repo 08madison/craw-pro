@@ -13,9 +13,12 @@ services:
       - key: LLM_API_KEY
         sync: false
       - key: LLM_BASE_URL
-        sync: false
+        value: https://api.deepseek.com
       - key: LLM_MODEL
-        sync: false
+        value: deepseek-chat
+      # Keep pages within DeepSeek's context window
+      - key: MAX_PAGE_CHARS
+        value: "60000"
       - key: APP_PASSWORD
         sync: false
       - key: MAX_PAGES_LIMIT
