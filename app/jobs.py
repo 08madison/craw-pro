@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import ipaddress
 import json
 import sqlite3
 import time
@@ -137,6 +138,24 @@ class JobStore:
                 self._tasks.pop(job.id, None)
 
 
+# Second-level labels under which registrations happen, e.g. cuhk.edu.hk, sina.com.cn, ox.ac.uk
+_SLD = {"ac", "co", "com", "edu", "gov", "net", "org", "gob", "mil", "or", "ne", "go"}
+
+
+def site_of(host: str) -> str:
+    """Registrable domain, so subdomains of one site match (www.cuhk.edu.hk ~ cse.cuhk.edu.hk)."""
+    host = host.lower().rstrip(".")
+    try:
+        ipaddress.ip_address(host.strip("[]"))
+        return host
+    except ValueError:
+        pass
+    parts = host.split(".")
+    if len(parts) >= 3 and len(parts[-1]) == 2 and parts[-2] in _SLD:
+        return ".".join(parts[-3:])
+    return ".".join(parts[-2:])
+
+
 def emit(job: Job, level: str, message: str, **extra: Any) -> None:
     job.events.append({"id": len(job.events), "ts": time.time(), "level": level,
                        "message": message, **extra})
@@ -153,14 +172,14 @@ class Crawler:
         self.seen: set[str] = set()
         self.queue: asyncio.Queue[tuple[str, int]] = asyncio.Queue()
         self.started = 0
-        self.hosts = {urlparse(u).hostname for u in self.req.urls}
+        self.sites = {site_of(urlparse(u).hostname or "") for u in self.req.urls}
         self.render_js = self.req.render_js and config.browser_available()
 
     def _enqueue(self, url: str, depth: int) -> bool:
         url = normalize_url(url)
         if url in self.seen:
             return False
-        if self.req.same_domain and urlparse(url).hostname not in self.hosts:
+        if self.req.same_domain and site_of(urlparse(url).hostname or "") not in self.sites:
             return False
         if len(self.seen) >= self.req.max_pages:
             return False
@@ -245,20 +264,25 @@ class Crawler:
         if page.truncated:
             emit(job, "warn", f"[{n}] 页面过长，仅分析前 {config.MAX_PAGE_CHARS} 个字符", url=url)
 
-        want_links = depth < self.req.max_depth and len(self.seen) < self.req.max_pages
+        # Pagination stays at the same depth; only other links go one level deeper.
+        go_deeper = depth < self.req.max_depth
+        want_links = len(self.seen) < self.req.max_pages
         if self.extractor:
             emit(job, "extract", f"[{n}] AI 正在分析「{page.title or url}」", url=url)
             try:
-                records, follow, note, usage = await self.extractor.extract(plan, model, page, want_links)
+                records, paging, follow, note, usage = await self.extractor.extract(plan, model, page, want_links)
                 self._add_usage(usage)
             except LLMError as e:
                 emit(job, "error", f"[{n}] 分析失败: {e}", url=url)
                 job.pages.append({**page_info, "status": "error", "error": str(e)})
                 return
-            next_urls = [page.links[i].url for i in follow if 0 <= i < len(page.links)]
+            pick = lambda idx: [page.links[i].url for i in idx if 0 <= i < len(page.links)]  # noqa: E731
+            next_links = [(u, depth) for u in pick(paging)]
+            if go_deeper:
+                next_links += [(u, depth + 1) for u in pick(follow)]
         else:
             records, note = basic_extract(page), ""
-            next_urls = [l.url for l in page.links]
+            next_links = [(l.url, depth + 1) for l in page.links] if go_deeper else []
 
         for r in records:
             r["_source"] = page.url
@@ -268,8 +292,8 @@ class Crawler:
 
         added = 0
         if want_links and not job.cancel_requested:
-            for u in next_urls:
-                if self._enqueue(u, depth + 1):
+            for u, d in next_links:
+                if self._enqueue(u, d):
                     added += 1
         msg = f"[{n}] 提取到 {len(records)} 条记录"
         if added:
