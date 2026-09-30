@@ -28,10 +28,41 @@ def _identifiers(rec: dict, keys: list[str]) -> list[str]:
     return out
 
 
+def _norm(v) -> str:
+    return " ".join(str(v or "").split()).lower()
+
+
+def _merge_same_name(records: list[dict], keys: list[str], name_field: str) -> list[dict]:
+    """Merge records with the same name whose other fields never disagree, e.g. a list-page
+    row (name + title) and the profile-page row of the same person (name + email)."""
+    out: list[dict] = []
+    by_name: dict[str, list[dict]] = {}
+    for r in records:
+        name = _name_key(str(r.get(name_field, "") or ""))
+        target = None
+        if name:
+            for cand in by_name.get(name, []):
+                if all(not _norm(r.get(k)) or not _norm(cand.get(k)) or _norm(r.get(k)) == _norm(cand.get(k))
+                       for k in keys):
+                    target = cand
+                    break
+        if target is None:
+            rec = dict(r)
+            out.append(rec)
+            if name:
+                by_name.setdefault(name, []).append(rec)
+            continue
+        for k, v in r.items():
+            if v and not target.get(k):
+                target[k] = v
+    return out
+
+
 def dedupe(records: list[dict], field_keys: list[str]) -> tuple[list[dict], int, int]:
     """Return (merged records, number of duplicates removed, number flagged as shared email).
 
-    Records are merged when they share an identifying email / detail URL, or are identical.
+    Records are merged when they share an identifying email / detail URL, are identical, or
+    have the same name and no conflicting field values.
     A value counts as identifying only if it never appears with two different names (first
     field), so department-wide emails or links do not glue different people together.
     """
@@ -79,7 +110,7 @@ def dedupe(records: list[dict], field_keys: list[str]) -> tuple[list[dict], int,
         for k, v in r.items():
             if v and not merged.get(k):
                 merged[k] = v
-    result = [groups[i] for i in order]
+    result = _merge_same_name([groups[i] for i in order], keys, name_field)
 
     # Flag emails shared by several different people
     flagged = 0

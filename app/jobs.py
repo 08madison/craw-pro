@@ -27,6 +27,28 @@ class JobRequest(BaseModel):
     same_domain: bool = True
     render_js: bool = False
     respect_robots: bool = True
+    # Set when the job is part of a batch created from another job's results
+    group: str = ""
+    group_name: str = Field(default="", max_length=200)
+    label: str = Field(default="", max_length=200)
+    plan: dict | None = None  # shared extraction plan, so a batch's jobs have the same columns
+
+
+class BatchItem(BaseModel):
+    url: str
+    label: str = Field(default="", max_length=200)
+
+
+class BatchRequest(BaseModel):
+    items: list[BatchItem] = Field(min_length=1, max_length=500)
+    name: str = Field(default="", max_length=200)
+    description: str = Field(default="", max_length=4000)
+    max_pages: int = Field(default=150, ge=1)
+    max_depth: int = Field(default=1, ge=0)
+    batch_size: int = Field(default=1, ge=1, le=20)
+    same_domain: bool = True
+    render_js: bool = False
+    respect_robots: bool = True
 
 
 @dataclass
@@ -58,6 +80,9 @@ class Job:
             "max_pages": self.request.max_pages,
             "queued_pages": self.queued_pages,
             "error": self.error,
+            "group": self.request.group,
+            "group_name": self.request.group_name,
+            "label": self.request.label,
         }
 
     def detail(self) -> dict:
@@ -125,6 +150,80 @@ class JobStore:
         self.save(job)
         self._tasks[job.id] = asyncio.create_task(self._run(job))
         return job
+
+    async def create_batch(self, breq: BatchRequest) -> str:
+        """Create one job per `batch_size` URLs, all sharing a single extraction plan."""
+        seen: set[str] = set()
+        items = []
+        for it in breq.items:
+            url = normalize_url(it.url)
+            if url and url not in seen:
+                seen.add(url)
+                items.append(BatchItem(url=url, label=it.label.strip()))
+        if not items:
+            raise ValueError("没有有效的网址")
+        urls = [it.url for it in items]
+        if config.LLM_PROVIDER:
+            plan, _ = await Extractor().plan(breq.description, urls[:5])
+        else:
+            plan = fallback_plan(breq.description)
+        group = uuid.uuid4().hex[:8]
+        name = breq.name.strip() or f"批次 {time.strftime('%m-%d %H:%M')}"
+        size = breq.batch_size
+        for i in range(0, len(items), size):
+            chunk = items[i : i + size]
+            labels = [c.label for c in chunk if c.label]
+            label = labels[0] if len(chunk) == 1 else (f"{labels[0]} 等 {len(chunk)} 个" if labels else "")
+            self.create(JobRequest(
+                urls=[c.url for c in chunk], description=breq.description,
+                max_pages=breq.max_pages, max_depth=breq.max_depth, same_domain=breq.same_domain,
+                render_js=breq.render_js, respect_robots=breq.respect_robots,
+                group=group, group_name=name, label=label, plan=plan.model_dump(),
+            ))
+        return group
+
+    def group_jobs(self, group: str) -> list[Job]:
+        return sorted((j for j in self.jobs.values() if j.request.group == group), key=lambda j: j.created_at)
+
+    def group_summary(self, group: str) -> dict:
+        jobs = self.group_jobs(group)
+        counts: dict[str, int] = {}
+        for j in jobs:
+            counts[j.status] = counts.get(j.status, 0) + 1
+        return {
+            "group": group,
+            "name": jobs[0].request.group_name if jobs else "",
+            "total": len(jobs),
+            "counts": counts,
+            "record_count": sum(len(j.records) for j in jobs),
+            "pages_done": sum(len(j.pages) for j in jobs),
+            "jobs": [j.summary() for j in jobs],
+        }
+
+    def combined_job(self, group: str) -> Job | None:
+        """A merged, deduplicated view of all of a batch's jobs, for export."""
+        jobs = self.group_jobs(group)
+        if not jobs:
+            return None
+        first = jobs[0]
+        plan = first.plan or first.request.plan or {}
+        records = [r for j in jobs for r in j.records]
+        records, _, _ = dedupe(records, [f["key"] for f in plan.get("fields", [])])
+        active = [j for j in jobs if j.status in ("queued", "running")]
+        combined = Job(
+            id=group,
+            request=first.request.model_copy(update={
+                "urls": [u for j in jobs for u in j.request.urls][:20] or first.request.urls,
+                "description": first.request.description,
+            }),
+            created_at=min(j.created_at for j in jobs),
+            status="running" if active else "done",
+            plan=plan,
+            records=records,
+            pages=[p for j in jobs for p in j.pages],
+            finished_at=None if active else max((j.finished_at or 0) for j in jobs),
+        )
+        return combined
 
     async def _run(self, job: Job) -> None:
         async with self._slots:
@@ -195,8 +294,11 @@ class Crawler:
         if self.req.render_js and not self.render_js:
             emit(job, "warn", "服务器未安装浏览器组件，改用普通 HTTP 抓取")
 
-        # 1. Understand the request
-        if self.extractor:
+        # 1. Understand the request (a batch shares one plan created up front)
+        if self.req.plan:
+            plan = CrawlPlan(**self.req.plan)
+            emit(job, "info", f"使用批次「{self.req.group_name}」统一的抓取计划")
+        elif self.extractor:
             emit(job, "info", f"正在用 AI 模型 ({config.LLM_MODEL}) 理解抓取需求…")
             try:
                 plan, usage = await self.extractor.plan(self.req.description, self.req.urls)
@@ -295,6 +397,8 @@ class Crawler:
 
         for r in records:
             r["_source"] = page.url
+            if self.req.label:
+                r["_list"] = self.req.label
         job.records.extend(records)
         page_info["records"] = len(records)
         job.pages.append(page_info)

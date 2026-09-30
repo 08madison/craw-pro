@@ -23,6 +23,7 @@ if TYPE_CHECKING:
 FONT = "Microsoft YaHei"
 ACCENT = (0x2F, 0x6F, 0xED)
 SOURCE_LABEL = "来源页面"
+LIST_LABEL = "所属名单"
 STATUS = {"queued": "排队中", "running": "进行中", "done": "已完成", "failed": "失败", "cancelled": "已取消"}
 
 
@@ -31,9 +32,10 @@ def columns(job: Job) -> list[tuple[str, str]]:
     fields = (job.plan or {}).get("fields", [])
     cols = [(f["key"], f["label"]) for f in fields]
     present = {k for r in job.records for k in r}
-    extra = sorted(present - {k for k, _ in cols} - {"_source", NOTE_KEY})
+    extra = sorted(present - {k for k, _ in cols} - {"_source", "_list", NOTE_KEY})
     note = [(NOTE_KEY, NOTE_LABEL)] if NOTE_KEY in present else []
-    return cols + [(k, k) for k in extra] + note + [("_source", SOURCE_LABEL)]
+    lists = [("_list", LIST_LABEL)] if "_list" in present else []
+    return cols + [(k, k) for k in extra] + note + lists + [("_source", SOURCE_LABEL)]
 
 
 def _fmt_time(ts: float | None) -> str:

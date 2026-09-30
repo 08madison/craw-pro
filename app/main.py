@@ -14,7 +14,8 @@ from fastapi.responses import FileResponse, JSONResponse, Response, StreamingRes
 from fastapi.staticfiles import StaticFiles
 
 from . import config, exporters
-from .jobs import JobRequest, JobStore
+from .jobs import BatchRequest, Job, JobRequest, JobStore
+from .llm import LLMError
 
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 store: JobStore
@@ -135,9 +136,7 @@ async def job_events(job_id: str, request: Request):
                              headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
-@app.get("/api/jobs/{job_id}/export", dependencies=[Depends(check_password)])
-async def export_job(job_id: str, format: str = "json"):
-    job = get_job(job_id)
+def export_response(job: Job, format: str, filename: str) -> Response:
     if format == "csv":
         cols = exporters.columns(job)
         buf = io.StringIO()
@@ -147,16 +146,55 @@ async def export_job(job_id: str, format: str = "json"):
         for r in job.records:
             w.writerow([r.get(k, "") for k, _ in cols])
         return Response(buf.getvalue(), media_type="text/csv; charset=utf-8",
-                        headers={"Content-Disposition": f'attachment; filename="crawl-{job.id}.csv"'})
+                        headers={"Content-Disposition": f'attachment; filename="{filename}.csv"'})
     if format in ("docx", "pptx"):
         build = exporters.to_docx if format == "docx" else exporters.to_pptx
-        data = await asyncio.to_thread(build, job)
-        return Response(data, media_type=OFFICE_TYPES[format],
-                        headers={"Content-Disposition": f'attachment; filename="crawl-{job.id}.{format}"'})
+        return Response(build(job), media_type=OFFICE_TYPES[format],
+                        headers={"Content-Disposition": f'attachment; filename="{filename}.{format}"'})
     return JSONResponse(
         {"job": job.summary(), "plan": job.plan, "records": job.records},
-        headers={"Content-Disposition": f'attachment; filename="crawl-{job.id}.json"'},
+        headers={"Content-Disposition": f'attachment; filename="{filename}.json"'},
     )
+
+
+@app.get("/api/jobs/{job_id}/export", dependencies=[Depends(check_password)])
+async def export_job(job_id: str, format: str = "json"):
+    job = get_job(job_id)
+    return await asyncio.to_thread(export_response, job, format, f"crawl-{job.id}")
+
+
+@app.post("/api/batches", dependencies=[Depends(check_password)])
+async def create_batch(breq: BatchRequest):
+    try:
+        group = await store.create_batch(breq)
+    except LLMError as e:
+        raise HTTPException(status_code=502, detail=f"生成抓取计划失败: {e}") from e
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from e
+    return store.group_summary(group)
+
+
+@app.get("/api/batches/{group}", dependencies=[Depends(check_password)])
+async def batch_detail(group: str):
+    summary = store.group_summary(group)
+    if not summary["total"]:
+        raise HTTPException(status_code=404, detail="批次不存在")
+    return summary
+
+
+@app.post("/api/batches/{group}/cancel", dependencies=[Depends(check_password)])
+async def cancel_batch(group: str):
+    for job in store.group_jobs(group):
+        job.cancel_requested = True
+    return {"ok": True}
+
+
+@app.get("/api/batches/{group}/export", dependencies=[Depends(check_password)])
+async def export_batch(group: str, format: str = "json"):
+    job = store.combined_job(group)
+    if job is None:
+        raise HTTPException(status_code=404, detail="批次不存在")
+    return await asyncio.to_thread(export_response, job, format, f"batch-{group}")
 
 
 @app.get("/")

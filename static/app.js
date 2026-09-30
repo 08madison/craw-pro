@@ -6,6 +6,19 @@
   let currentId = null;
   let es = null;
   let refreshTimer = null;
+  let batchTimer = null;
+  let lastBatchSig = "";
+
+  const PRESETS = {
+    find: {
+      description: "找出这所大学每个学院、学系、学部的教师名单页面（Faculty / People / Academic Staff / Directory / 师资队伍）。每个学系输出一条记录：学系名称、教师名单页网址。不要抓取新闻、招生、活动等页面。",
+      max_pages: 100, max_depth: 2,
+    },
+    staff: {
+      description: "抓取名单中每位老师的姓名、职称、所属院系、邮箱。邮箱如写成 xxx#xxx 或 xxx(at)xxx，请转换为标准格式。名单页已有邮箱时不要进入个人主页；名单页没有邮箱时才进入老师个人主页获取邮箱。跟随名单的翻页，不要进入新闻、招生等其他页面。",
+      max_pages: 150, max_depth: 1,
+    },
+  };
 
   // ---------- auth ----------
   const pw = {
@@ -92,7 +105,8 @@
     for (const j of jobs) {
       const li = document.createElement("li");
       li.className = j.id === currentId ? "active" : "";
-      li.innerHTML = `<div class="j-url">${esc(j.description || j.urls[0])}</div>
+      const tag = j.group ? `<span class="tag" title="${esc(j.group_name)}">批次</span>` : "";
+      li.innerHTML = `<div class="j-url">${tag}${esc(j.label || j.description || j.urls[0])}</div>
         <div class="j-meta"><span>${esc(j.urls[0])}</span></div>
         <div class="j-meta"><span class="st-${j.status}">${STATUS[j.status] || j.status} · ${j.record_count} 条</span><span>${fmtDate(j.created_at)}</span></div>`;
       li.onclick = () => openJob(j.id);
@@ -165,7 +179,9 @@
 
   function renderHeader() {
     const j = currentJob;
-    $("#job-title").textContent = j.description || "（未填写描述）";
+    $("#job-title").textContent = j.label || j.description || "（未填写描述）";
+    $("#job-desc").textContent = j.label ? j.description : "";
+    $("#job-desc").hidden = !j.label;
     $("#job-urls").textContent = j.urls.join("  ·  ");
     const st = $("#job-status");
     st.className = `badge st-${j.status}`;
@@ -195,6 +211,8 @@
          <div><b>每条记录：</b>${esc(plan.item_description)}</div>
          <div><b>字段：</b>${plan.fields.map((f) => `<span class="chip" title="${esc(f.description)}">${esc(f.label)}</span>`).join("")}</div>`
       : "";
+    renderBatchHint();
+    if (j.group) renderBatch(j.group); else { $("#batch-card").hidden = true; clearTimeout(batchTimer); }
     $("#count-results").textContent = `(${j.records.length})`;
     $("#count-pages").textContent = `(${j.pages.length})`;
     renderResults();
@@ -204,9 +222,10 @@
   function renderResults() {
     const j = currentJob;
     const fields = (j.plan?.fields || []).map((f) => [f.key, f.label]);
-    const known = new Set(fields.map((f) => f[0]).concat("_source", "_email_note"));
+    const known = new Set(fields.map((f) => f[0]).concat("_source", "_email_note", "_list"));
     for (const r of j.records) for (const k of Object.keys(r)) if (!known.has(k)) { known.add(k); fields.push([k, k]); }
     if (j.records.some((r) => r._email_note)) fields.push(["_email_note", "邮箱备注"]);
+    if (j.records.some((r) => r._list)) fields.push(["_list", "所属名单"]);
     fields.push(["_source", "来源页面"]);
     const q = $("#filter").value.trim().toLowerCase();
     const rows = q ? j.records.filter((r) => Object.values(r).some((v) => String(v).toLowerCase().includes(q))) : j.records;
@@ -236,6 +255,150 @@
     log.appendChild(li);
     if (atBottom) log.scrollTop = log.scrollHeight;
   }
+
+  const clampPages = (n) => Math.max(1, Math.min(n, serverConfig.max_pages_limit || n));
+
+  // ---------- presets ----------
+  document.querySelectorAll("[data-preset]").forEach((b) => {
+    b.onclick = () => {
+      const p = PRESETS[b.dataset.preset];
+      $("#description").value = p.description;
+      $("#max_pages").value = clampPages(p.max_pages);
+      $("#max_depth").value = Math.min(p.max_depth, serverConfig.max_depth_limit ?? p.max_depth);
+    };
+  });
+
+  // ---------- batch: create jobs from a result's URLs ----------
+  function urlColumns(j) {
+    const cols = (j.plan?.fields || []).map((f) => [f.key, f.label]);
+    return cols.filter(([k]) => j.records.some((r) => isUrl(r[k]) && !/\.(png|jpe?g|gif|webp|svg)(\?|$)/i.test(r[k])));
+  }
+
+  function batchItems() {
+    const uk = $("#b-url-col").value, lk = $("#b-label-col").value;
+    const seen = new Set(), items = [];
+    for (const r of currentJob.records) {
+      const url = String(r[uk] || "").trim();
+      if (!isUrl(url) || seen.has(url)) continue;
+      seen.add(url);
+      items.push({ url, label: lk ? String(r[lk] || "").trim() : "" });
+    }
+    return items;
+  }
+
+  function renderBatchList() {
+    const items = batchItems();
+    $("#b-list").innerHTML = items.map((it, i) => `<label><input type="checkbox" data-i="${i}" checked>
+      <span>${esc(it.label || "（无名称）")} <span class="u">${esc(it.url)}</span></span></label>`).join("") || '<span class="muted">没有网址</span>';
+    $("#b-all").checked = true;
+    updateBatchCount();
+  }
+
+  function updateBatchCount() {
+    const n = document.querySelectorAll("#b-list input:checked").length;
+    const size = Math.max(1, Math.min(20, +$("#b-batch-size").value || 1));
+    $("#b-selected").textContent = `已选 ${n} 个网址 → 将创建 ${Math.ceil(n / size)} 个任务`;
+  }
+
+  function renderBatchHint() {
+    const j = currentJob;
+    const cols = j.status === "running" || j.status === "queued" ? [] : urlColumns(j);
+    const count = cols.length ? new Set(j.records.map((r) => r[cols[0][0]]).filter(isUrl)).size : 0;
+    $("#batch-hint").hidden = count === 0;
+    $("#batch-hint-count").textContent = count;
+  }
+
+  $("#batch-open").onclick = () => {
+    const j = currentJob;
+    const ucols = urlColumns(j);
+    const others = (j.plan?.fields || []).filter((f) => !ucols.some(([k]) => k === f.key));
+    $("#b-url-col").innerHTML = ucols.map(([k, l]) => `<option value="${esc(k)}">${esc(l)}</option>`).join("");
+    $("#b-label-col").innerHTML = '<option value="">（不使用）</option>' + others.map((f) => `<option value="${esc(f.key)}">${esc(f.label)}</option>`).join("");
+    if (others.length) $("#b-label-col").value = others[0].key;
+    $("#b-description").value = PRESETS.staff.description;
+    $("#b-name").value = "";
+    $("#b-max-pages").max = serverConfig.max_pages_limit;
+    $("#b-max-pages").value = clampPages(+$("#b-max-pages").value || PRESETS.staff.max_pages);
+    $("#b-max-depth").max = serverConfig.max_depth_limit;
+    $("#b-error").textContent = "";
+    renderBatchList();
+    $("#batch-dialog").showModal();
+  };
+  $("#b-url-col").onchange = renderBatchList;
+  $("#b-label-col").onchange = renderBatchList;
+  $("#b-batch-size").oninput = updateBatchCount;
+  $("#b-list").onchange = updateBatchCount;
+  $("#b-all").onchange = () => {
+    document.querySelectorAll("#b-list input").forEach((c) => (c.checked = $("#b-all").checked));
+    updateBatchCount();
+  };
+  $("#b-cancel").onclick = () => $("#batch-dialog").close();
+
+  $("#batch-form").onsubmit = async (e) => {
+    e.preventDefault();
+    const all = batchItems();
+    const items = [...document.querySelectorAll("#b-list input:checked")].map((c) => all[+c.dataset.i]);
+    if (!items.length) { $("#b-error").textContent = "请至少选择一个网址"; return; }
+    const btn = $("#b-submit");
+    btn.disabled = true;
+    btn.textContent = "正在生成抓取计划…";
+    $("#b-error").textContent = "";
+    try {
+      const res = await api("/api/batches", { method: "POST", body: JSON.stringify({
+        items,
+        name: $("#b-name").value.trim(),
+        description: $("#b-description").value.trim(),
+        max_pages: +$("#b-max-pages").value || 1,
+        max_depth: +$("#b-max-depth").value || 0,
+        batch_size: Math.max(1, Math.min(20, +$("#b-batch-size").value || 1)),
+        same_domain: currentJob.request?.same_domain ?? true,
+        respect_robots: currentJob.request?.respect_robots ?? true,
+        render_js: currentJob.request?.render_js ?? false,
+      }) });
+      $("#batch-dialog").close();
+      await loadJobs();
+      if (res.jobs.length) openJob(res.jobs[0].id);
+    } catch (err) {
+      $("#b-error").textContent = err.message;
+    } finally {
+      btn.disabled = false;
+      btn.textContent = "创建任务";
+    }
+  };
+
+  // ---------- batch: progress + merged export ----------
+  async function renderBatch(group) {
+    clearTimeout(batchTimer);
+    let b;
+    try { b = await api(`/api/batches/${group}`); } catch { $("#batch-card").hidden = true; return; }
+    if (currentJob?.group !== group) return;
+    const c = b.counts;
+    const finished = (c.done || 0) + (c.failed || 0) + (c.cancelled || 0);
+    const active = (c.running || 0) + (c.queued || 0);
+    $("#batch-card").hidden = false;
+    $("#batch-title").textContent = `批次：${b.name}`;
+    $("#batch-stats").innerHTML = `共 ${b.total} 个任务：已完成 ${c.done || 0}` +
+      (c.running ? ` · 进行中 ${c.running}` : "") + (c.queued ? ` · 排队 ${c.queued}` : "") +
+      (c.failed ? ` · <span class="lv-error">失败 ${c.failed}</span>` : "") + (c.cancelled ? ` · 已取消 ${c.cancelled}` : "") +
+      ` ｜ 已抓取 ${b.pages_done} 页，${b.record_count} 条记录（合并去重前）`;
+    $("#batch-progress").style.width = `${Math.round((100 * finished) / Math.max(1, b.total))}%`;
+    $("#batch-cancel").hidden = active === 0;
+    $("#batch-jobs").innerHTML = `<thead><tr><th>#</th><th>名单</th><th>网址</th><th>状态</th><th>页面</th><th>记录</th></tr></thead><tbody>` +
+      b.jobs.map((j, i) => `<tr data-id="${j.id}"><td>${i + 1}</td><td>${esc(j.label || "-")}</td><td>${esc(j.urls[0])}${j.urls.length > 1 ? ` 等 ${j.urls.length} 个` : ""}</td>
+        <td class="st-${j.status}">${STATUS[j.status] || j.status}</td><td>${j.pages_done}</td><td>${j.record_count}</td></tr>`).join("") + "</tbody>";
+    $("#batch-jobs").querySelectorAll("tr[data-id]").forEach((tr) => (tr.onclick = () => openJob(tr.dataset.id)));
+    const sig = JSON.stringify(c);
+    if (sig !== lastBatchSig) { lastBatchSig = sig; loadJobs(); }
+    if (active) batchTimer = setTimeout(() => { if (currentJob?.group === group) renderBatch(group); }, 4000);
+  }
+  document.querySelectorAll("[data-bexport]").forEach((b) => {
+    b.onclick = () => currentJob?.group && window.open(withPw(`/api/batches/${currentJob.group}/export?format=${b.dataset.bexport}`));
+  });
+  $("#batch-cancel").onclick = async () => {
+    if (!currentJob?.group || !confirm("确定取消整个批次中所有未完成的任务？")) return;
+    await api(`/api/batches/${currentJob.group}/cancel`, { method: "POST" });
+    renderBatch(currentJob.group);
+  };
 
   // ---------- actions ----------
   $("#cancel-btn").onclick = async () => { await api(`/api/jobs/${currentId}/cancel`, { method: "POST" }); };

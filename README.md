@@ -8,6 +8,8 @@
 - **多页抓取**：按页面数 / 链接深度限制，由大模型挑选值得继续抓取的链接（分页、详情页等）
 - **实时进度**：Server-Sent Events 推送日志、进度条、Token 用量
 - **结果表格**：动态列、筛选、图片/链接预览，导出结构化 Word 报告、PPT 演示文稿、CSV（Excel 友好）、JSON
+- **批量任务**：把一个任务结果中的网址（如各学系的教师名单页）一键批量建任务，统一字段、自动合并去重导出
+- **自动去重**：按邮箱 / 详情链接 / 同名且信息不冲突合并重复记录，多人共用的邮箱标记为「公共邮箱」
 - **历史任务**：SQLite 持久化
 - **安全**：可选访问密码；阻止访问内网地址（SSRF 防护）；默认遵守 robots.txt
 - **基础模式**：未配置任何大模型 Key 时仍可运行，只抓取标题和正文
@@ -50,6 +52,12 @@ uvicorn app.main:app --reload
 
 也可以使用 Claude：设置 `ANTHROPIC_API_KEY`（不设 `LLM_API_KEY`），默认模型 `claude-opus-5`。
 
+## 抓取整所大学的老师信息（两步法）
+
+1. **找名单页**：网址填大学主页，点「① 找教师名单页」模板（深度 2、约 100 页），得到每个学系的名单页网址。
+2. **批量抓取**：在结果页点「用这些网址批量建任务」，勾选学系，确认描述（默认模板：名单页有邮箱就不进个人主页，没有才进），创建后每个学系一个任务。
+3. **合并导出**：在批次卡片中导出 Word / PPT / CSV / JSON，所有学系的结果合并去重，并带「所属名单」列。
+
 ## 环境变量
 
 | 变量 | 默认值 | 说明 |
@@ -82,6 +90,10 @@ uvicorn app.main:app --reload
 | `GET` | `/api/jobs/{id}/events` | SSE 进度流 |
 | `GET` | `/api/jobs/{id}/export?format=docx\|pptx\|csv\|json` | 导出结果（Word / PPT / CSV / JSON） |
 | `POST` | `/api/jobs/{id}/cancel` | 取消任务 |
+| `POST` | `/api/batches` | 批量建任务 `{items:[{url,label}], name, description, max_pages, max_depth, batch_size}` |
+| `GET` | `/api/batches/{group}` | 批次进度 |
+| `POST` | `/api/batches/{group}/cancel` | 取消整个批次 |
+| `GET` | `/api/batches/{group}/export?format=docx\|pptx\|csv\|json` | 批次合并去重导出 |
 | `DELETE` | `/api/jobs/{id}` | 删除任务 |
 
 设置了 `APP_PASSWORD` 时，请求需带 `X-App-Password` 请求头（或 `?pw=` 查询参数）。
@@ -91,7 +103,9 @@ uvicorn app.main:app --reload
 ```
 app/
   main.py     FastAPI 路由、SSE、导出
-  jobs.py     任务存储（SQLite）与抓取调度
+  jobs.py     任务存储（SQLite）、批次与抓取调度
+  dedupe.py   去重合并、公共邮箱标记
+  exporters.py Word / PPT 导出
   fetcher.py  HTTP/浏览器抓取、SSRF 防护、HTML → 文本
   llm.py      大模型：需求解析 + 每页结构化提取（OpenAI 兼容 / Claude）
   config.py   环境变量

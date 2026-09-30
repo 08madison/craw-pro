@@ -24,6 +24,11 @@
           <label>想抓取什么？（自然语言描述）
             <textarea id="description" rows="5" placeholder="例如：抓取首页所有新闻的标题、链接、分数和评论数；如果有“下一页”，继续抓取。"></textarea>
           </label>
+          <div class="presets">
+            <span class="muted small">大学模板：</span>
+            <button type="button" class="chip-btn" data-preset="find" title="从大学主页找出各学系的教师名单页">① 找教师名单页</button>
+            <button type="button" class="chip-btn" data-preset="staff" title="从教师名单页抓取老师信息">② 抓取老师信息</button>
+          </div>
           <div class="row">
             <label>最多页面数 <input id="max_pages" type="number" min="1" value="5"></label>
             <label>链接深度 <input id="max_depth" type="number" min="0" value="1"></label>
@@ -52,10 +57,35 @@
       </div>
 
       <div id="job-view" hidden>
+        <section class="card batch-card" id="batch-card" hidden>
+          <div class="card-head">
+            <div>
+              <h2 id="batch-title">批次</h2>
+              <div id="batch-stats" class="muted small"></div>
+            </div>
+            <div class="actions">
+              <button class="secondary" id="batch-cancel">取消整个批次</button>
+            </div>
+          </div>
+          <div class="progress"><div id="batch-progress"></div></div>
+          <div class="batch-actions">
+            <span class="muted small">导出整个批次（已合并去重）：</span>
+            <button class="secondary" data-bexport="docx">Word</button>
+            <button class="secondary" data-bexport="pptx">PPT</button>
+            <button class="secondary" data-bexport="csv">CSV</button>
+            <button class="secondary" data-bexport="json">JSON</button>
+          </div>
+          <details id="batch-jobs-wrap">
+            <summary>查看批次内的任务</summary>
+            <div class="table-wrap"><table id="batch-jobs"></table></div>
+          </details>
+        </section>
+
         <section class="card">
           <div class="card-head">
             <div>
               <h2 id="job-title">任务</h2>
+              <div id="job-desc" class="muted small clip" hidden></div>
               <div id="job-urls" class="muted small"></div>
             </div>
             <div class="actions">
@@ -67,6 +97,10 @@
           <div class="progress"><div id="progress-bar"></div></div>
           <div id="job-stats" class="stats"></div>
           <div id="job-plan" class="plan"></div>
+          <div id="batch-hint" class="batch-hint" hidden>
+            <span>结果中有 <b id="batch-hint-count">0</b> 个网址，可以为每个网址自动创建抓取任务（例如每个学系的教师名单页）。</span>
+            <button id="batch-open">用这些网址批量建任务</button>
+          </div>
         </section>
 
         <section class="card">
@@ -90,6 +124,36 @@
       </div>
     </section>
   </main>
+
+  <dialog id="batch-dialog" class="wide">
+    <form id="batch-form">
+      <h3>用结果网址批量建任务</h3>
+      <div class="row">
+        <label>网址列 <select id="b-url-col"></select></label>
+        <label>名称列 <select id="b-label-col"></select></label>
+      </div>
+      <div class="b-list-head">
+        <label class="check"><input type="checkbox" id="b-all" checked> 全选</label>
+        <span class="muted small" id="b-selected"></span>
+      </div>
+      <div class="b-list" id="b-list"></div>
+      <label>批次名称 <input id="b-name" type="text" placeholder="例如：HKUST 老师邮箱"></label>
+      <label>每个任务要抓什么？
+        <textarea id="b-description" rows="5"></textarea>
+      </label>
+      <div class="row3">
+        <label>每个任务最多页面数 <input id="b-max-pages" type="number" min="1" value="150"></label>
+        <label>链接深度 <input id="b-max-depth" type="number" min="0" value="1"></label>
+        <label>每个任务的网址数 <input id="b-batch-size" type="number" min="1" max="20" value="1"></label>
+      </div>
+      <p class="muted small">深度 1：名单页没有邮箱时会进入老师个人主页。每个任务的网址数为 1 时，每个学系单独一个任务，互不影响。所有任务使用同一套字段，完成后可以合并导出。</p>
+      <div id="b-error" class="error"></div>
+      <div class="dialog-actions">
+        <button type="button" class="secondary" id="b-cancel">取消</button>
+        <button type="submit" id="b-submit">创建任务</button>
+      </div>
+    </form>
+  </dialog>
 
   <dialog id="pw-dialog">
     <form method="dialog" id="pw-form">
