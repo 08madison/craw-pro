@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field
 
 from . import config
 from .fetcher import FetchError, Page, RobotsCache, fetch_browser, fetch_http, new_client, normalize_url
+from .dedupe import dedupe
 from .llm import CrawlPlan, Extractor, LLMError, basic_extract, fallback_plan
 
 
@@ -220,6 +221,14 @@ class Crawler:
             for w in workers:
                 w.cancel()
             await asyncio.gather(*workers, return_exceptions=True)
+
+        records, removed, shared = dedupe(job.records, [f.key for f in plan.fields])
+        job.records = records
+        if removed or shared:
+            parts = [f"合并了 {removed} 条重复记录"] if removed else []
+            if shared:
+                parts.append(f"{shared} 条记录的邮箱为多人共用，已标记为「公共邮箱」")
+            emit(job, "info", "整理结果：" + "；".join(parts))
 
         if job.cancel_requested:
             job.status = "cancelled"

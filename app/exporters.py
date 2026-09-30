@@ -15,6 +15,8 @@ from pptx.dml.color import RGBColor as PptColor
 from pptx.util import Emu, Inches
 from pptx.util import Pt as PPt
 
+from .dedupe import NOTE_KEY, NOTE_LABEL
+
 if TYPE_CHECKING:
     from .jobs import Job
 
@@ -25,12 +27,13 @@ STATUS = {"queued": "排队中", "running": "进行中", "done": "已完成", "f
 
 
 def columns(job: Job) -> list[tuple[str, str]]:
-    """(key, label) for every column: planned fields, unexpected extras, then the source URL."""
+    """(key, label) for every column: planned fields, extras, the email note, then the source URL."""
     fields = (job.plan or {}).get("fields", [])
     cols = [(f["key"], f["label"]) for f in fields]
-    known = {k for k, _ in cols}
-    extra = sorted({k for r in job.records for k in r} - known - {"_source"})
-    return cols + [(k, k) for k in extra] + [("_source", SOURCE_LABEL)]
+    present = {k for r in job.records for k in r}
+    extra = sorted(present - {k for k, _ in cols} - {"_source", NOTE_KEY})
+    note = [(NOTE_KEY, NOTE_LABEL)] if NOTE_KEY in present else []
+    return cols + [(k, k) for k in extra] + note + [("_source", SOURCE_LABEL)]
 
 
 def _fmt_time(ts: float | None) -> str:

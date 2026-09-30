@@ -204,8 +204,9 @@
   function renderResults() {
     const j = currentJob;
     const fields = (j.plan?.fields || []).map((f) => [f.key, f.label]);
-    const known = new Set(fields.map((f) => f[0]).concat("_source"));
+    const known = new Set(fields.map((f) => f[0]).concat("_source", "_email_note"));
     for (const r of j.records) for (const k of Object.keys(r)) if (!known.has(k)) { known.add(k); fields.push([k, k]); }
+    if (j.records.some((r) => r._email_note)) fields.push(["_email_note", "邮箱备注"]);
     fields.push(["_source", "来源页面"]);
     const q = $("#filter").value.trim().toLowerCase();
     const rows = q ? j.records.filter((r) => Object.values(r).some((v) => String(v).toLowerCase().includes(q))) : j.records;
