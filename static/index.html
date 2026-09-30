@@ -132,6 +132,18 @@
         <label>网址列 <select id="b-url-col"></select></label>
         <label>名称列 <select id="b-label-col"></select></label>
       </div>
+      <label>按关键词勾选（网址或名称中包含任一关键词，空格分隔）
+        <div class="b-filter">
+          <input id="b-keywords" type="text" placeholder="例如：faculty people staff directory">
+          <button type="button" class="secondary" id="b-apply">只勾选匹配的</button>
+        </div>
+      </label>
+      <div class="b-quick">
+        <span class="muted small">快捷：</span>
+        <button type="button" class="chip-btn" id="b-kw-lists">名单页关键词</button>
+        <button type="button" class="chip-btn" id="b-kw-home" title="网址只有域名、没有路径的（学院或学系首页）">只选首页</button>
+        <button type="button" class="chip-btn" id="b-invert">反选</button>
+      </div>
       <div class="b-list-head">
         <label class="check"><input type="checkbox" id="b-all" checked> 全选</label>
         <span class="muted small" id="b-selected"></span>

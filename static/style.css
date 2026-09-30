@@ -142,3 +142,8 @@ dialog select, dialog input[type=text] { width: 100%; margin-top: 4px; padding: 
 .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 10px; }
 .actions button { white-space: nowrap; }
 #job-desc { margin-top: 2px; }
+.b-filter { display: flex; gap: 8px; margin-top: 4px; }
+.b-filter input { margin-top: 0 !important; flex: 1; }
+.b-filter button { white-space: nowrap; }
+.b-quick { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: -2px 0 8px; }
+.b-list label.match span:first-child { font-weight: 600; }

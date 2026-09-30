@@ -317,6 +317,7 @@
     if (others.length) $("#b-label-col").value = others[0].key;
     $("#b-description").value = PRESETS.staff.description;
     $("#b-name").value = "";
+    $("#b-keywords").value = "";
     $("#b-max-pages").max = serverConfig.max_pages_limit;
     $("#b-max-pages").value = clampPages(+$("#b-max-pages").value || PRESETS.staff.max_pages);
     $("#b-max-depth").max = serverConfig.max_depth_limit;
@@ -333,6 +334,37 @@
     updateBatchCount();
   };
   $("#b-cancel").onclick = () => $("#batch-dialog").close();
+
+  const LIST_KEYWORDS = "faculty people staff directory member academic-staff profiles 师资 教师 教职 老师 人员";
+  function checkWhere(pred) {
+    const items = batchItems();
+    document.querySelectorAll("#b-list input").forEach((c) => {
+      const ok = pred(items[+c.dataset.i]);
+      c.checked = ok;
+      c.closest("label").classList.toggle("match", ok);
+    });
+    $("#b-all").checked = false;
+    updateBatchCount();
+  }
+  function applyKeywords() {
+    const kws = $("#b-keywords").value.toLowerCase().split(/[\s,，、;；]+/).filter(Boolean);
+    if (!kws.length) return;
+    checkWhere((it) => {
+      const hay = `${it.url} ${it.label}`.toLowerCase();
+      return kws.some((k) => hay.includes(k));
+    });
+  }
+  $("#b-apply").onclick = applyKeywords;
+  $("#b-keywords").onkeydown = (e) => { if (e.key === "Enter") { e.preventDefault(); applyKeywords(); } };
+  $("#b-kw-lists").onclick = () => { $("#b-keywords").value = LIST_KEYWORDS; applyKeywords(); };
+  $("#b-kw-home").onclick = () => checkWhere((it) => {
+    try { const u = new URL(it.url); return (u.pathname === "/" || u.pathname === "" || /^\/(index\.\w+|en|zh|home)?\/?$/i.test(u.pathname)) && !u.search; }
+    catch { return false; }
+  });
+  $("#b-invert").onclick = () => {
+    document.querySelectorAll("#b-list input").forEach((c) => (c.checked = !c.checked));
+    updateBatchCount();
+  };
 
   $("#batch-form").onsubmit = async (e) => {
     e.preventDefault();
