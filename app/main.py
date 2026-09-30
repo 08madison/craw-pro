@@ -13,11 +13,15 @@ from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import config
+from . import config, exporters
 from .jobs import JobRequest, JobStore
 
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 store: JobStore
+OFFICE_TYPES = {
+    "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+}
 
 
 @asynccontextmanager
@@ -135,18 +139,20 @@ async def job_events(job_id: str, request: Request):
 async def export_job(job_id: str, format: str = "json"):
     job = get_job(job_id)
     if format == "csv":
-        fields = [f["key"] for f in (job.plan or {}).get("fields", [])]
-        labels = {f["key"]: f["label"] for f in (job.plan or {}).get("fields", [])}
-        extra = sorted({k for r in job.records for k in r} - set(fields) - {"_source"})
-        cols = fields + extra + ["_source"]
+        cols = exporters.columns(job)
         buf = io.StringIO()
-        buf.write("﻿")  # BOM so Excel opens UTF-8 correctly
+        buf.write("\ufeff")  # BOM so Excel opens UTF-8 correctly
         w = csv.writer(buf)
-        w.writerow([labels.get(c, "来源页面" if c == "_source" else c) for c in cols])
+        w.writerow([label for _, label in cols])
         for r in job.records:
-            w.writerow([r.get(c, "") for c in cols])
+            w.writerow([r.get(k, "") for k, _ in cols])
         return Response(buf.getvalue(), media_type="text/csv; charset=utf-8",
                         headers={"Content-Disposition": f'attachment; filename="crawl-{job.id}.csv"'})
+    if format in ("docx", "pptx"):
+        build = exporters.to_docx if format == "docx" else exporters.to_pptx
+        data = await asyncio.to_thread(build, job)
+        return Response(data, media_type=OFFICE_TYPES[format],
+                        headers={"Content-Disposition": f'attachment; filename="crawl-{job.id}.{format}"'})
     return JSONResponse(
         {"job": job.summary(), "plan": job.plan, "records": job.records},
         headers={"Content-Disposition": f'attachment; filename="crawl-{job.id}.json"'},

@@ -1,13 +1,13 @@
 # Craw Pro · 智能爬虫
 
-输入网址 + 用自然语言描述想要的内容，系统用大模型（DeepSeek、通义千问、Kimi、智谱、OpenAI、Claude 等均可）理解需求、自动生成字段，逐页抓取并提取结构化数据；网页界面实时显示进度和结果，可导出 CSV / JSON。
+输入网址 + 用自然语言描述想要的内容，系统用大模型（DeepSeek、通义千问、Kimi、智谱、OpenAI、Claude 等均可）理解需求、自动生成字段，逐页抓取并提取结构化数据；网页界面实时显示进度和结果，可导出 Word 报告、PPT 演示文稿、CSV、JSON。
 
 ## 功能
 
 - **自然语言需求** → 大模型生成抓取计划（每条记录代表什么、有哪些字段、该跟随哪些链接）
 - **多页抓取**：按页面数 / 链接深度限制，由大模型挑选值得继续抓取的链接（分页、详情页等）
 - **实时进度**：Server-Sent Events 推送日志、进度条、Token 用量
-- **结果表格**：动态列、筛选、图片/链接预览，导出 CSV（Excel 友好）/ JSON
+- **结果表格**：动态列、筛选、图片/链接预览，导出结构化 Word 报告、PPT 演示文稿、CSV（Excel 友好）、JSON
 - **历史任务**：SQLite 持久化
 - **安全**：可选访问密码；阻止访问内网地址（SSRF 防护）；默认遵守 robots.txt
 - **基础模式**：未配置任何大模型 Key 时仍可运行，只抓取标题和正文
@@ -80,7 +80,7 @@ uvicorn app.main:app --reload
 | `GET` | `/api/jobs` | 任务列表 |
 | `GET` | `/api/jobs/{id}` | 任务详情（计划、记录、页面） |
 | `GET` | `/api/jobs/{id}/events` | SSE 进度流 |
-| `GET` | `/api/jobs/{id}/export?format=csv\|json` | 导出结果 |
+| `GET` | `/api/jobs/{id}/export?format=docx\|pptx\|csv\|json` | 导出结果（Word / PPT / CSV / JSON） |
 | `POST` | `/api/jobs/{id}/cancel` | 取消任务 |
 | `DELETE` | `/api/jobs/{id}` | 删除任务 |
 

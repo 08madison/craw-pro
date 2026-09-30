@@ -246,6 +246,8 @@
     $("#job-view").hidden = true; $("#empty").hidden = false;
     loadJobs();
   };
+  $("#export-docx").onclick = () => window.open(withPw(`/api/jobs/${currentId}/export?format=docx`));
+  $("#export-pptx").onclick = () => window.open(withPw(`/api/jobs/${currentId}/export?format=pptx`));
   $("#export-csv").onclick = () => window.open(withPw(`/api/jobs/${currentId}/export?format=csv`));
   $("#export-json").onclick = () => window.open(withPw(`/api/jobs/${currentId}/export?format=json`));
 

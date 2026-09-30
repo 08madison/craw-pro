@@ -6,3 +6,5 @@ lxml>=5.0
 pydantic>=2.7
 anthropic>=1.8
 openai>=1.40
+python-docx>=1.1
+python-pptx>=1.0
