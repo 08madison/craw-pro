@@ -6,6 +6,7 @@ import csv
 import io
 import json
 import secrets
+import webbrowser
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -29,6 +30,12 @@ OFFICE_TYPES = {
 async def lifespan(_: FastAPI):
     global store
     store = JobStore()
+    if config.OPEN_BROWSER:
+        # Open the UI once the server is accepting connections (used by the local start scripts)
+        async def _open() -> None:
+            await asyncio.sleep(1.5)
+            await asyncio.to_thread(webbrowser.open, config.OPEN_BROWSER)
+        asyncio.get_running_loop().create_task(_open())
     yield
 
 

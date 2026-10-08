@@ -28,10 +28,11 @@ echo 正在安装/更新依赖...
 python -m pip install -q --disable-pip-version-check -i https://pypi.tuna.tsinghua.edu.cn/simple -r requirements.txt || goto :fail
 
 echo.
-echo  Craw Pro 已启动：http://localhost:8000
-echo  关闭本窗口即可停止服务。
+echo  正在启动 Craw Pro，首次启动可能需要等待几十秒……
+echo  看到 "Uvicorn running" 后会自动打开浏览器：http://localhost:8000
+echo  使用期间请不要关闭本窗口；关闭本窗口即可停止服务。
 echo.
-start "" http://localhost:8000
+set OPEN_BROWSER=http://localhost:8000
 python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
 pause
 exit /b 0

@@ -47,6 +47,9 @@ LLM_MAX_TOKENS = _int("LLM_MAX_TOKENS", 8192)
 # OpenAI-compatible only: send response_format=json_object (disable for providers that reject it)
 LLM_JSON_MODE = os.environ.get("LLM_JSON_MODE", "1") != "0"
 
+# Local start scripts set this to the UI address so a browser opens once the server is up
+OPEN_BROWSER = os.environ.get("OPEN_BROWSER", "")
+
 # Optional password protecting the web UI / API (strongly recommended on a public host)
 APP_PASSWORD = os.environ.get("APP_PASSWORD", "")
 
