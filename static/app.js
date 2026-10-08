@@ -241,9 +241,11 @@
     const t = $("#pages-table");
     if (!pages.length) { t.innerHTML = '<tr><td class="muted">暂无</td></tr>'; return; }
     const label = { ok: "成功", error: "失败", blocked: "robots 禁止" };
-    t.innerHTML = `<thead><tr><th>#</th><th>页面</th><th>标题</th><th>深度</th><th>状态</th><th>记录数</th></tr></thead>
+    const anyErr = pages.some((p) => p.status !== "ok");
+    t.innerHTML = `<thead><tr><th>#</th><th>页面</th><th>标题</th><th>深度</th><th>状态</th><th>记录数</th>${anyErr ? "<th>失败原因</th>" : ""}</tr></thead>
       <tbody>${pages.map((p, i) => `<tr><td>${i + 1}</td><td>${cell(p.url)}</td><td>${esc(p.title || "")}</td><td>${p.depth}</td>
-      <td class="${p.status === "ok" ? "" : "lv-error"}" title="${esc(p.error || "")}">${label[p.status] || p.status}</td><td>${p.records}</td></tr>`).join("")}</tbody>`;
+      <td class="${p.status === "ok" ? "" : "lv-error"}">${label[p.status] || p.status}</td><td>${p.records}</td>
+      ${anyErr ? `<td class="lv-error">${esc(p.status === "blocked" ? "robots.txt 不允许抓取" : p.error || "")}</td>` : ""}</tr>`).join("")}</tbody>`;
   }
 
   function appendLog(ev) {

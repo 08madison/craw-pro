@@ -14,7 +14,8 @@ from urllib.parse import urlparse
 from pydantic import BaseModel, Field
 
 from . import config
-from .fetcher import FetchError, Page, RobotsCache, fetch_browser, fetch_http, new_client, normalize_url
+from .fetcher import (FetchError, Page, RobotsCache, describe_error, fetch_browser, fetch_http, new_client,
+                      normalize_url)
 from .dedupe import dedupe
 from .llm import CrawlPlan, Extractor, LLMError, basic_extract, fallback_plan
 
@@ -365,8 +366,9 @@ class Crawler:
         try:
             page: Page = await (fetch_browser(url) if self.render_js else fetch_http(self.client, url))
         except (FetchError, Exception) as e:  # noqa: BLE001
-            emit(job, "error", f"[{n}] 抓取失败 {url}: {e}", url=url)
-            job.pages.append({**page_info, "status": "error", "error": str(e)})
+            reason = describe_error(e)
+            emit(job, "error", f"[{n}] 抓取失败 {url}: {reason}", url=url)
+            job.pages.append({**page_info, "status": "error", "error": reason})
             return
         finally:
             await asyncio.sleep(config.REQUEST_DELAY_MS / 1000)

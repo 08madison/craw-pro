@@ -2,6 +2,23 @@ import os
 from pathlib import Path
 
 
+def _load_env_file(path: Path) -> None:
+    """Read KEY=VALUE lines from a local .env file; real environment variables win."""
+    if not path.is_file():
+        return
+    for line in path.read_text(encoding="utf-8-sig").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key, value = key.strip(), value.strip().strip('"').strip("'")
+        if key and key not in os.environ:
+            os.environ[key] = value
+
+
+_load_env_file(Path(os.environ.get("ENV_FILE", ".env")))
+
+
 def _int(name: str, default: int) -> int:
     try:
         return int(os.environ.get(name, default))

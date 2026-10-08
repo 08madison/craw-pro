@@ -15,16 +15,33 @@
 - **基础模式**：未配置任何大模型 Key 时仍可运行，只抓取标题和正文
 - **可选 JS 渲染**：使用 `Dockerfile`（内置 Playwright + Chromium）部署即可启用
 
-## 本地运行
+## 在自己电脑上运行
 
-```bash
-pip install -r requirements.txt
-export LLM_API_KEY=sk-...                     # 例如 DeepSeek 的 Key
-export LLM_BASE_URL=https://api.deepseek.com
-export LLM_MODEL=deepseek-chat
-uvicorn app.main:app --reload
-# 打开 http://localhost:8000
-```
+先下载代码（GitHub 仓库页面 → Code → Download ZIP，解压），然后任选一种方式。
+配置都写在 `.env` 文件里（参考 `.env.example`），任务历史保存在 `data/` 文件夹，重启不会丢失。
+
+### 方式一：Docker（推荐，包含浏览器渲染）
+
+1. 安装 [Docker Desktop](https://www.docker.com/products/docker-desktop/) 并启动它
+2. 把 `.env.example` 复制为 `.env`，填写 `LLM_API_KEY`
+3. 在代码文件夹中打开终端，运行：
+   ```bash
+   docker compose up -d --build
+   ```
+4. 浏览器打开 http://localhost:8000
+
+常用命令：`docker compose logs -f`（看日志）、`docker compose down`（停止）、更新代码后再次 `docker compose up -d --build`。
+默认只有本机能访问；要让局域网其他电脑访问，把 `docker-compose.yml` 里的 `127.0.0.1:8000:8000` 改成 `8000:8000`，并设置 `APP_PASSWORD`。
+
+### 方式二：直接用 Python（不装 Docker）
+
+需要 Python 3.10+（Windows 安装时勾选 “Add python.exe to PATH”）。
+
+- **Windows**：双击 `start-windows.bat`。第一次会打开 `.env` 让你填写 Key，保存后再双击一次。
+- **macOS / Linux**：终端运行 `./start.sh`。
+
+依赖默认从清华 PyPI 镜像安装。这种方式不包含浏览器渲染；需要的话运行
+`pip install playwright && playwright install chromium`（国内可先设置 `PLAYWRIGHT_DOWNLOAD_HOST=https://npmmirror.com/mirrors/playwright`）。
 
 ## 部署到 Render
 

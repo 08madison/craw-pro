@@ -165,11 +165,39 @@ def html_to_page(url: str, status: int, html: str) -> Page:
                 truncated=truncated, content_type="text/html")
 
 
+_HTTP_HINTS = {
+    403: "网站拒绝访问，可能拦截了爬虫或境外 IP",
+    404: "页面不存在",
+    412: "网站防火墙要求浏览器验证，可勾选「使用浏览器渲染 JavaScript」再试",
+    429: "请求过于频繁，被网站限流",
+    521: "网站防火墙要求浏览器验证，可勾选「使用浏览器渲染 JavaScript」再试",
+}
+
+
+def describe_error(e: BaseException) -> str:
+    """Human-readable reason for a failed fetch (httpx timeouts often have an empty message)."""
+    if isinstance(e, FetchError):
+        return str(e)
+    if isinstance(e, httpx.ConnectTimeout):
+        return "连接超时：网站没有响应，可能屏蔽了服务器所在地区的访问"
+    if isinstance(e, httpx.TimeoutException):
+        return "读取超时：网站响应太慢"
+    if isinstance(e, httpx.ConnectError):
+        msg = str(e)
+        if "CERTIFICATE" in msg.upper() or "SSL" in msg.upper():
+            return f"HTTPS 证书错误，可尝试把网址改成 http:// 开头（{msg[:120]}）"
+        return f"无法连接网站（{msg[:120] or e.__class__.__name__}）"
+    if isinstance(e, httpx.RemoteProtocolError):
+        return "网站中断了连接，可能拦截了爬虫"
+    return str(e) or e.__class__.__name__
+
+
 async def fetch_http(client: httpx.AsyncClient, url: str) -> Page:
     final_url, resp, body = await _get(client, url)
     ctype = resp.headers.get("content-type", "").lower()
     if resp.status_code >= 400:
-        raise FetchError(f"HTTP {resp.status_code}")
+        hint = _HTTP_HINTS.get(resp.status_code, "")
+        raise FetchError(f"HTTP {resp.status_code}" + (f"：{hint}" if hint else ""))
     encoding = resp.encoding or "utf-8"
     content = body.decode(encoding, "replace")
     if "html" in ctype or content.lstrip()[:15].lower().startswith(("<!doctype", "<html")):
