@@ -40,6 +40,8 @@
 - **Windows**：双击 `start-windows.bat`。第一次会打开 `.env` 让你填写 Key，保存后再双击一次。
 - **macOS / Linux**：终端运行 `./start.sh`。
 
+手动启动命令：`.venv\Scripts\python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --http h11 --ws none --loop asyncio`（`--http h11` 使用纯 Python 组件，避免部分 Windows + 新版 Python 环境启动时卡住）。
+
 依赖默认从清华 PyPI 镜像安装。这种方式不包含浏览器渲染；需要的话运行
 `pip install playwright && playwright install chromium`（国内可先设置 `PLAYWRIGHT_DOWNLOAD_HOST=https://npmmirror.com/mirrors/playwright`）。
 

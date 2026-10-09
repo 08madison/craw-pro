@@ -33,7 +33,7 @@ echo  看到 "Uvicorn running" 后会自动打开浏览器：http://localhost:80
 echo  使用期间请不要关闭本窗口；关闭本窗口即可停止服务。
 echo.
 set OPEN_BROWSER=http://localhost:8000
-python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
+python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --http h11 --ws none --loop asyncio
 pause
 exit /b 0
 
